@@ -49,7 +49,7 @@ print(f"总占用空间: {(storage_mb + index_mb):.2f} MB")
 try:
     price_stats = collection.aggregate([
         {"$bucket": {
-            "groupBy": "$Price",
+            "groupBy": "$price",  # 更新为正确的字段名
             "boundaries": [0, 1, 5, 10, 20, 30, 50, 100, 1000],
             "default": "其他",
             "output": {"count": {"$sum": 1}}
@@ -71,13 +71,12 @@ try:
 except Exception as e:
     print("无法统计价格区间:", e)
 
-# 统计发行日期（需要处理日期格式）
+# 统计发行日期（新格式为 YYYY-MM-DD）
 try:
-    # 假设Release date格式为"Feb 3, 2020"
     year_stats = collection.aggregate([
-        {"$match": {"Release date": {"$ne": None, "$ne": ""}}},
+        {"$match": {"release_date": {"$ne": None, "$ne": ""}}},
         {"$project": {
-            "year": {"$arrayElemAt": [{"$split": ["$Release date", ", "]}, 1]}
+            "year": {"$substr": ["$release_date", 0, 4]}  # 提取年份
         }},
         {"$group": {"_id": "$year", "count": {"$sum": 1}}},
         {"$sort": {"_id": 1}}
@@ -93,7 +92,8 @@ except Exception as e:
 # 统计开发商分布
 try:
     developers_stats = collection.aggregate([
-        {"$group": {"_id": "$Developers", "count": {"$sum": 1}}},
+        {"$unwind": "$developers"},  # 开发商是数组字段
+        {"$group": {"_id": "$developers", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
         {"$limit": 10}
     ])
@@ -105,30 +105,48 @@ try:
 except Exception as e:
     print("无法统计开发商:", e)
 
+# 统计游戏类型分布
+try:
+    genres_stats = collection.aggregate([
+        {"$unwind": "$genres"},  # genres是数组字段
+        {"$group": {"_id": "$genres", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 10}
+    ])
+    
+    print("\n主要游戏类型 (前10):")
+    for genre in genres_stats:
+        if genre["_id"]:
+            print(f"{genre['_id']}: {genre['count']}款游戏")
+except Exception as e:
+    print("无法统计游戏类型:", e)
+
 # 统计评价情况
 try:
     # 计算好评率
     review_stats = collection.aggregate([
-        {"$match": {"Positive": {"$type": "int"}, "Negative": {"$type": "int"}}},
+        {"$match": {"positive": {"$type": "int"}, "negative": {"$type": "int"}}},
         {"$project": {
-            "total_reviews": {"$add": ["$Positive", "$Negative"]},
+            "name": 1,
+            "total_reviews": {"$add": ["$positive", "$negative"]},
             "positive_rate": {
                 "$cond": [
-                    {"$eq": [{"$add": ["$Positive", "$Negative"]}, 0]},
+                    {"$eq": [{"$add": ["$positive", "$negative"]}, 0]},
                     0,
-                    {"$multiply": [{"$divide": ["$Positive", {"$add": ["$Positive", "$Negative"]}]}, 100]}
+                    {"$multiply": [{"$divide": ["$positive", {"$add": ["$positive", "$negative"]}]}, 100]}
                 ]
             }
         }},
+        {"$match": {"total_reviews": {"$gt": 100}}},  # 至少有100条评价
         {"$bucket": {
             "groupBy": "$positive_rate",
             "boundaries": [0, 50, 70, 80, 90, 95, 100],
             "default": "其他",
-            "output": {"count": {"$sum": 1}, "games": {"$push": "$Name"}}
+            "output": {"count": {"$sum": 1}}
         }}
     ])
     
-    print("\n好评率分布:")
+    print("\n好评率分布 (至少100条评价):")
     for rate_range in review_stats:
         if rate_range["_id"] == "其他":
             print(f"其他评分: {rate_range['count']}款游戏")
@@ -145,9 +163,9 @@ try:
     platform_stats = collection.aggregate([
         {"$group": {
             "_id": {
-                "Windows": "$Windows",
-                "Mac": "$Mac",
-                "Linux": "$Linux"
+                "windows": "$windows",
+                "mac": "$mac",
+                "linux": "$linux"
             },
             "count": {"$sum": 1}
         }},
@@ -157,14 +175,83 @@ try:
     print("\n平台支持情况:")
     for platform in platform_stats:
         platforms = []
-        if platform["_id"]["Windows"]:
+        if platform["_id"]["windows"] == "True":
             platforms.append("Windows")
-        if platform["_id"]["Mac"]:
+        if platform["_id"]["mac"] == "True":
             platforms.append("Mac")
-        if platform["_id"]["Linux"]:
+        if platform["_id"]["linux"] == "True":
             platforms.append("Linux")
         
         platform_str = ", ".join(platforms) if platforms else "无平台支持"
         print(f"{platform_str}: {platform['count']}款游戏")
 except Exception as e:
     print("无法统计平台支持:", e)
+
+# 统计估计拥有者人数分布
+try:
+    owners_stats = collection.aggregate([
+        {"$group": {"_id": "$estimated_owners", "count": {"$sum": 1}}},
+        {"$sort": {"_id": 1}}
+    ])
+    
+    print("\n估计拥有者人数分布:")
+    for owner_range in owners_stats:
+        if owner_range["_id"]:
+            print(f"{owner_range['_id']}: {owner_range['count']}款游戏")
+except Exception as e:
+    print("无法统计拥有者人数:", e)
+
+# 查找最受欢迎的游戏（按评价总数和推荐数）
+try:
+    popular_games = collection.aggregate([
+        {"$match": {"recommendations": {"$type": "int"}}},
+        {"$sort": {"recommendations": -1}},
+        {"$limit": 10},
+        {"$project": {
+            "name": 1,
+            "recommendations": 1,
+            "positive": 1,
+            "negative": 1,
+            "peak_ccu": 1
+        }}
+    ])
+    
+    print("\n最受欢迎的游戏 (前10, 按推荐数):")
+    for game in popular_games:
+        print(f"{game['name']}: {game.get('recommendations', 0)}推荐, {game.get('peak_ccu', 0)}峰值在线")
+except Exception as e:
+    print("无法查找最受欢迎的游戏:", e)
+
+# 分析标签分布
+try:
+    # 先查看一个标签字段的结构
+    sample = collection.find_one({"tags": {"$exists": True}})
+    if sample and "tags" in sample:
+        print("\n标签字段类型:", type(sample["tags"]))
+        print("标签示例:", sample["tags"][:100] + "..." if len(str(sample["tags"])) > 100 else sample["tags"])
+        
+        # 尝试处理标签（假设是字符串形式的字典）
+        if isinstance(sample["tags"], str) and sample["tags"].startswith("{") and sample["tags"].endswith("}"):
+            tag_stats = collection.aggregate([
+                {"$match": {"tags": {"$type": "string"}}},
+                {"$project": {
+                    "tag_str": {"$substr": ["$tags", 1, {"$subtract": [{"$strLenCP": "$tags"}, 2]}]}
+                }},
+                {"$addFields": {
+                    "tag_pairs": {"$split": ["$tag_str", ","]}
+                }},
+                {"$unwind": "$tag_pairs"},
+                {"$addFields": {
+                    "tag_name": {"$trim": {"input": {"$arrayElemAt": [{"$split": ["$tag_pairs", ":"]}, 0]}}},
+                }},
+                {"$group": {"_id": "$tag_name", "count": {"$sum": 1}}},
+                {"$sort": {"count": -1}},
+                {"$limit": 15}
+            ])
+            
+            print("\n最常见的标签 (前15):")
+            for tag in tag_stats:
+                if tag["_id"] and tag["_id"] != "":
+                    print("{}: {}款游戏".format(tag['_id'].strip('\'"'), tag['count']))
+except Exception as e:
+    print("无法分析标签:", e)
