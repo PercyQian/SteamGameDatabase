@@ -267,7 +267,7 @@ class SteamDatabaseGUI:
             except ValueError:
                 pass
             
-            # 平台选择
+            # 平台选择 - 修改为同时满足所有选中平台
             platform_conditions = []
             if self.windows_var.get():
                 platform_conditions.append({"windows": "True"})
@@ -276,15 +276,24 @@ class SteamDatabaseGUI:
             if self.linux_var.get():
                 platform_conditions.append({"linux": "True"})
             
+            # 使用$and确保所有平台条件都满足
             if platform_conditions:
-                query["$or"] = platform_conditions
+                if len(platform_conditions) == 1:
+                    # 如果只有一个条件，直接添加到查询中
+                    query.update(platform_conditions[0])
+                else:
+                    # 如果有多个条件，使用$and
+                    if "$and" not in query:
+                        query["$and"] = platform_conditions
+                    else:
+                        query["$and"].extend(platform_conditions)
             
             # 游戏类型
             selected_genre = self.genre_var.get()
             if selected_genre != "全部":
                 query["genres"] = selected_genre
             
-            # 标签选择
+            # 标签选择 - 修改为同时满足所有选中标签
             selected_tags = [tag for tag, var in self.tag_vars.items() if var.get()]
             if selected_tags:
                 tag_conditions = []
@@ -293,10 +302,11 @@ class SteamDatabaseGUI:
                     tag_regex = f"'{re.escape(tag)}':\\s*\\d+"
                     tag_conditions.append({"tags": {"$regex": tag_regex}})
                 
-                if "tags" not in query:
-                    query["$and"] = [{"$or": tag_conditions}]
+                # 确保所有标签条件都满足（使用$and）
+                if "$and" not in query:
+                    query["$and"] = tag_conditions
                 else:
-                    query = {"$and": [query, {"$or": tag_conditions}]}
+                    query["$and"].extend(tag_conditions)
             
             # 排序方式
             sort_option = self.sort_var.get()
@@ -315,6 +325,9 @@ class SteamDatabaseGUI:
             elif sort_option == "名称 (A-Z)":
                 sort_field = "name"
                 sort_order = 1
+            
+            # 打印查询条件（调试用）
+            print("查询条件:", query)
             
             # 执行查询
             results = self.collection.find(query).sort(sort_field, sort_order).limit(100)
@@ -347,6 +360,7 @@ class SteamDatabaseGUI:
             
         except Exception as e:
             messagebox.showerror("搜索错误", f"搜索时出错: {e}")
+            print("详细错误:", e)  # 在控制台打印更详细的错误信息
     
     def show_game_details(self, event):
         """显示所选游戏的详细信息"""
