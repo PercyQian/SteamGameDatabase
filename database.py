@@ -1,7 +1,7 @@
 import pandas as pd
 from pymongo import MongoClient
 # 修改路径为你的数据文件位置
-df = pd.read_csv('games.csv')
+
 
 connection_url = (
     "mongodb://cxq91:Qq12345678@ac-lsikpgh-shard-00-00.wtghhj8.mongodb.net:27017,"
@@ -13,7 +13,7 @@ client = MongoClient(connection_url)
 # 指定要使用的数据库和集合（根据需要修改）
 db = client["steamDB"]          # 例如: "steamDB"
 collection = db["steam_games"]   
-data_records = df.to_dict(orient="records")
+
 
 #try:
 #    result = collection.insert_many(data_records)
@@ -43,7 +43,7 @@ print(f"总占用空间: {(storage_mb + index_mb):.2f} MB")
 
 # 查看前5条数据示例
 print("\n数据示例:")
-for doc in collection.find().limit(5):
+for doc in collection.find().limit(1):
     print(doc)
 
 # 更新类别统计代码，使其适应您的数据结构
