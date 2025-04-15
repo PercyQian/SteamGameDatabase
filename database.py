@@ -12,8 +12,11 @@ connection_url = (
 client = MongoClient(connection_url)
 # 指定要使用的数据库和集合（根据需要修改）
 db = client["steamDB"]          # 例如: "steamDB"
-collection = db["steam_games"]   
+collection = db["steam_games"]
 
+# 读取 CSV 文件（修改 path 为你的 CSV 文件路径）
+#csv_file_path = "games.csv"
+#df = pd.read_csv(csv_file_path)
 
 #try:
 #    result = collection.insert_many(data_records)
@@ -41,43 +44,6 @@ print(f"存储空间: {storage_mb:.2f} MB")
 print(f"索引大小: {index_mb:.2f} MB")
 print(f"总占用空间: {(storage_mb + index_mb):.2f} MB")
 
-# 查看前5条数据示例
-print("\n数据示例:")
-for doc in collection.find().limit(1):
-    print(doc)
-
-# 更新类别统计代码，使其适应您的数据结构
-try:
-    # 使用实际存在的Categories字段
-    category_stats = collection.aggregate([
-        {"$project": {"categories_array": {"$split": ["$Categories", ","]}}},
-        {"$unwind": "$categories_array"},
-        {"$group": {"_id": "$categories_array", "count": {"$sum": 1}}},
-        {"$sort": {"count": -1}},
-        {"$limit": 10}
-    ])
-    
-    print("\n游戏分类统计 (前10):")
-    for category in category_stats:
-        print(f"{category['_id']}: {category['count']}款游戏")
-except Exception as e:
-    print("无法统计游戏分类:", e)
-
-# 使用正确的Genres字段统计游戏类型
-try:
-    genres_stats = collection.aggregate([
-        {"$project": {"genres_array": {"$split": ["$Genres", ","]}}},
-        {"$unwind": "$genres_array"},
-        {"$group": {"_id": "$genres_array", "count": {"$sum": 1}}},
-        {"$sort": {"count": -1}},
-        {"$limit": 10}
-    ])
-    
-    print("\n游戏类型统计 (前10):")
-    for genre in genres_stats:
-        print(f"{genre['_id']}: {genre['count']}款游戏")
-except Exception as e:
-    print("无法统计游戏类型:", e)
 
 # 统计价格区间分布
 try:
