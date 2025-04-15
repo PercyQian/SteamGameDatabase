@@ -339,7 +339,7 @@ class SteamDatabaseGUI:
                 # 提取需要的字段
                 name = game.get("name", "未知")
                 release_date = game.get("release_date", "未知")
-                price = f"¥{game.get('price', 0)}"
+                price = f"${game.get('price', 0)}"
                 
                 # 计算好评率
                 positive = game.get("positive", 0)
@@ -411,7 +411,7 @@ class SteamDatabaseGUI:
             else:
                 details += f"发行商: {publishers}\n"
             
-            details += f"价格: ¥{game.get('price', 0)}\n"
+            details += f"价格: ${game.get('price', 0)}\n"
             
             # 评价信息
             positive = game.get("positive", 0)
