@@ -503,7 +503,7 @@ class SteamDatabaseGUI:
         filtered_tags = [tag for tag in all_tags if search_text == "" or search_text in tag.lower()]
         
         # limit display count, prevent UI overload
-        max_display = 10000  # allow up to 10000 tags to be displayed
+        max_display = 1000  # allow up to 1000 tags to be displayed
         display_tags = filtered_tags[:max_display]
         
         # create checkbox grid
