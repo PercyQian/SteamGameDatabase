@@ -5,6 +5,7 @@ from pymongo import MongoClient
 import json
 import re
 from functools import partial
+from bson.objectid import ObjectId  # 导入这个，用于处理MongoDB的ObjectId
 
 class SteamDatabaseGUI:
     def __init__(self, root):
@@ -352,7 +353,8 @@ class SteamDatabaseGUI:
                 peak_ccu = game.get("peak_ccu", 0)
                 
                 # 添加到树形视图
-                self.results_tree.insert("", tk.END, values=(name, release_date, price, positive_rate, owners, peak_ccu), iid=str(game.get("_id")))
+                game_id = str(game.get("_id"))
+                self.results_tree.insert("", tk.END, values=(name, release_date, price, positive_rate, owners, peak_ccu), iid=game_id)
                 count += 1
             
             # 更新结果数量
@@ -369,19 +371,46 @@ class SteamDatabaseGUI:
             self.details_text.delete(1.0, tk.END)
             
             # 获取选中的游戏ID
-            selected_id = self.results_tree.selection()[0]
+            selected_items = self.results_tree.selection()
+            if not selected_items:
+                return
             
-            # 查询游戏详情
-            game = self.collection.find_one({"_id": selected_id})
+            selected_id = selected_items[0]
+            print(f"选中的游戏ID: {selected_id}")
+            
+            # 查询游戏详情 - 需要将字符串ID转换为ObjectId
+            try:
+                # 尝试转换为ObjectId
+                object_id = ObjectId(selected_id)
+                game = self.collection.find_one({"_id": object_id})
+            except:
+                # 如果转换失败，尝试直接使用字符串ID查询
+                game = self.collection.find_one({"_id": selected_id})
+            
+            print(f"查询到的游戏: {game is not None}")
             
             if not game:
+                self.details_text.insert(tk.END, "未找到该游戏的详细信息。")
                 return
             
             # 格式化详情显示
             details = f"游戏名称: {game.get('name', '未知')}\n"
             details += f"发布日期: {game.get('release_date', '未知')}\n"
-            details += f"开发商: {', '.join(game.get('developers', ['未知']))}\n"
-            details += f"发行商: {', '.join(game.get('publishers', ['未知']))}\n"
+            
+            # 开发商可能是字符串或列表
+            developers = game.get('developers', ['未知'])
+            if isinstance(developers, list):
+                details += f"开发商: {', '.join(developers)}\n"
+            else:
+                details += f"开发商: {developers}\n"
+            
+            # 发行商可能是字符串或列表
+            publishers = game.get('publishers', ['未知'])
+            if isinstance(publishers, list):
+                details += f"发行商: {', '.join(publishers)}\n"
+            else:
+                details += f"发行商: {publishers}\n"
+            
             details += f"价格: ¥{game.get('price', 0)}\n"
             
             # 评价信息
@@ -404,6 +433,17 @@ class SteamDatabaseGUI:
                 else:
                     details += f"游戏类型: {genres}\n"
             
+            # 显示标签信息
+            tags = game.get("tags", "")
+            if tags and isinstance(tags, str) and tags.startswith("{"):
+                try:
+                    # 尝试解析标签字符串
+                    tag_dict = json.loads(tags.replace("'", "\""))
+                    top_tags = sorted(tag_dict.items(), key=lambda x: int(x[1]), reverse=True)[:5]
+                    details += f"主要标签: {', '.join([tag for tag, _ in top_tags])}\n"
+                except:
+                    pass
+            
             # 游戏描述
             details += f"\n游戏简介:\n{game.get('short_description', '无描述信息')}\n"
             
@@ -412,6 +452,7 @@ class SteamDatabaseGUI:
             
         except Exception as e:
             messagebox.showerror("详情错误", f"显示游戏详情时出错: {e}")
+            print("详情错误详细信息:", e)  # 在控制台打印更多信息
 
 if __name__ == "__main__":
     root = tk.Tk()
