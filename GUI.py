@@ -14,18 +14,26 @@ class SteamDatabaseGUI:
         self.root.geometry("1200x800")
         self.root.configure(bg="#2a475e")  # Steam深蓝色背景
         
+        # 设置样式
+        self.setup_styles()
+        
         # 连接到MongoDB
         self.connect_to_mongodb()
         
-        # 获取所有可用标签和类别
+        # 获取所有可用标签
         self.all_tags = self.get_all_tags()
-        self.all_genres = self.get_all_genres()
         
         # 创建UI元素
         self.create_ui()
         
         # 显示初始数据
         self.search_games()
+    
+    def setup_styles(self):
+        """设置自定义样式"""
+        style = ttk.Style()
+        # 为游戏类型复选框创建特殊样式
+        style.configure("Genre.TCheckbutton", foreground="blue")
     
     def connect_to_mongodb(self):
         try:
@@ -45,21 +53,27 @@ class SteamDatabaseGUI:
     def get_all_tags(self):
         """获取所有可用的标签"""
         try:
-            # 尝试从tags字段中提取标签
-            sample = self.collection.find_one({"tags": {"$exists": True}})
-            if not sample or "tags" not in sample:
-                return []
+            # 尝试从tags字段中获取所有可能的标签
+            pipeline = [
+                {"$match": {"tags": {"$exists": True, "$ne": ""}}},
+                {"$limit": 1000}  # 限制处理的文档数量以提高性能
+            ]
             
-            # 根据标签的存储格式进行处理
-            if isinstance(sample["tags"], str) and sample["tags"].startswith("{"):
-                # 如果标签是JSON字符串，解析它
-                tag_dict = json.loads(sample["tags"].replace("'", "\""))
-                return sorted(list(tag_dict.keys()))
-            elif isinstance(sample["tags"], dict):
-                # 如果标签已经是字典
-                return sorted(list(sample["tags"].keys()))
-            else:
-                return []
+            cursor = self.collection.aggregate(pipeline)
+            all_tags = set()
+            
+            for doc in cursor:
+                tags = doc.get("tags", "")
+                if isinstance(tags, str) and tags.startswith("{"):
+                    try:
+                        # 解析标签字符串成字典
+                        tag_dict = json.loads(tags.replace("'", "\""))
+                        # 添加所有标签到集合中
+                        all_tags.update(tag_dict.keys())
+                    except:
+                        pass
+            
+            return sorted(list(all_tags))
         except Exception as e:
             print(f"获取标签时出错: {e}")
             return []
@@ -134,38 +148,53 @@ class SteamDatabaseGUI:
         tags_frame = ttk.LabelFrame(filter_frame, text="游戏标签 (可多选)")
         tags_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
-        # 创建标签的滚动框
-        tags_canvas = tk.Canvas(tags_frame)
-        tags_scrollbar = ttk.Scrollbar(tags_frame, orient="vertical", command=tags_canvas.yview)
-        tags_scrollable_frame = ttk.Frame(tags_canvas)
+        # 添加标签搜索框
+        tag_search_frame = ttk.Frame(tags_frame)
+        tag_search_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        tags_scrollable_frame.bind(
+        ttk.Label(tag_search_frame, text="搜索标签:").pack(side=tk.LEFT)
+        self.tag_search_var = tk.StringVar()
+        self.tag_search_var.trace("w", self.filter_tags)
+        tag_search_entry = ttk.Entry(tag_search_frame, textvariable=self.tag_search_var)
+        tag_search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        
+        # 创建标签滚动区域 (包含水平和垂直滚动条)
+        tags_outer_frame = ttk.Frame(tags_frame)
+        tags_outer_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # 垂直滚动条
+        tags_canvas = tk.Canvas(tags_outer_frame, height=200)
+        tags_v_scrollbar = ttk.Scrollbar(tags_outer_frame, orient="vertical", command=tags_canvas.yview)
+        # 水平滚动条
+        tags_h_scrollbar = ttk.Scrollbar(tags_outer_frame, orient="horizontal", command=tags_canvas.xview)
+        
+        self.tags_scrollable_frame = ttk.Frame(tags_canvas)
+        
+        # 配置滚动区域
+        self.tags_scrollable_frame.bind(
             "<Configure>",
             lambda e: tags_canvas.configure(scrollregion=tags_canvas.bbox("all"))
         )
         
-        tags_canvas.create_window((0, 0), window=tags_scrollable_frame, anchor="nw")
-        tags_canvas.configure(yscrollcommand=tags_scrollbar.set)
+        # 创建窗口并配置滚动条
+        tags_canvas.create_window((0, 0), window=self.tags_scrollable_frame, anchor="nw")
+        tags_canvas.configure(yscrollcommand=tags_v_scrollbar.set, xscrollcommand=tags_h_scrollbar.set)
         
+        # 布局滚动区域组件
+        tags_v_scrollbar.pack(side="right", fill="y")
+        tags_h_scrollbar.pack(side="bottom", fill="x")
         tags_canvas.pack(side="left", fill="both", expand=True)
-        tags_scrollbar.pack(side="right", fill="y")
         
-        # 添加标签复选框
+        # 添加已选标签显示区域
+        selected_tags_frame = ttk.LabelFrame(tags_frame, text="已选标签")
+        selected_tags_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        self.selected_tags_text = tk.Text(selected_tags_frame, height=3, wrap=tk.WORD)
+        self.selected_tags_text.pack(fill=tk.X, expand=True)
+        
+        # 添加标签复选框的变量
         self.tag_vars = {}
-        common_tags = self.all_tags[:20]  # 只显示最常见的20个标签
-        for i, tag in enumerate(common_tags):
-            var = tk.BooleanVar()
-            self.tag_vars[tag] = var
-            chk = ttk.Checkbutton(tags_scrollable_frame, text=tag, variable=var)
-            chk.grid(row=i//2, column=i%2, sticky="w", padx=5, pady=2)
-        
-        # 游戏类型选择
-        genres_frame = ttk.LabelFrame(filter_frame, text="游戏类型")
-        genres_frame.pack(fill=tk.X, padx=5, pady=5)
-        
-        self.genre_var = tk.StringVar(value="全部")
-        genres_dropdown = ttk.Combobox(genres_frame, textvariable=self.genre_var, values=["全部"] + self.all_genres, state="readonly")
-        genres_dropdown.pack(fill=tk.X, padx=5, pady=5)
+        self.populate_tags()  # 填充标签
         
         # 平台选择
         platform_frame = ttk.Frame(filter_frame)
@@ -233,14 +262,16 @@ class SteamDatabaseGUI:
         self.min_price_var.set("0")
         self.max_price_var.set("100")
         self.sort_var.set("游玩人数 (高到低)")
-        self.genre_var.set("全部")
         self.windows_var.set(True)
         self.mac_var.set(False)
         self.linux_var.set(False)
         
-        # 清除所有标签选择
-        for var in self.tag_vars.values():
-            var.set(False)
+        # 重置标签选择
+        for tag_var in self.tag_vars.values():
+            tag_var.set(False)
+        
+        # 更新已选标签显示
+        self.update_selected_tags_display()
         
         # 重新搜索
         self.search_games()
@@ -277,33 +308,25 @@ class SteamDatabaseGUI:
             if self.linux_var.get():
                 platform_conditions.append({"linux": "True"})
             
-            # 使用$and确保所有平台条件都满足
             if platform_conditions:
                 if len(platform_conditions) == 1:
-                    # 如果只有一个条件，直接添加到查询中
                     query.update(platform_conditions[0])
                 else:
-                    # 如果有多个条件，使用$and
                     if "$and" not in query:
                         query["$and"] = platform_conditions
                     else:
                         query["$and"].extend(platform_conditions)
             
-            # 游戏类型
-            selected_genre = self.genre_var.get()
-            if selected_genre != "全部":
-                query["genres"] = selected_genre
-            
-            # 标签选择 - 修改为同时满足所有选中标签
+            # 标签选择 - 单独处理所有标签
             selected_tags = [tag for tag, var in self.tag_vars.items() if var.get()]
             if selected_tags:
                 tag_conditions = []
                 for tag in selected_tags:
-                    # 使用正则表达式查询标签字符串中是否包含指定标签
+                    # 使用正则表达式查询标签
                     tag_regex = f"'{re.escape(tag)}':\\s*\\d+"
                     tag_conditions.append({"tags": {"$regex": tag_regex}})
                 
-                # 确保所有标签条件都满足（使用$and）
+                # 确保同时满足所有选中的标签条件
                 if "$and" not in query:
                     query["$and"] = tag_conditions
                 else:
@@ -350,11 +373,17 @@ class SteamDatabaseGUI:
                     positive_rate = "无评价"
                 
                 owners = game.get("estimated_owners", "未知")
+                
+                # 处理峰值同时在线数据
                 peak_ccu = game.get("peak_ccu", 0)
+                if peak_ccu in [0, 1]:
+                    peak_ccu_display = "Data not calculated"
+                else:
+                    peak_ccu_display = str(peak_ccu)
                 
                 # 添加到树形视图
                 game_id = str(game.get("_id"))
-                self.results_tree.insert("", tk.END, values=(name, release_date, price, positive_rate, owners, peak_ccu), iid=game_id)
+                self.results_tree.insert("", tk.END, values=(name, release_date, price, positive_rate, owners, peak_ccu_display), iid=game_id)
                 count += 1
             
             # 更新结果数量
@@ -362,7 +391,7 @@ class SteamDatabaseGUI:
             
         except Exception as e:
             messagebox.showerror("搜索错误", f"搜索时出错: {e}")
-            print("详细错误:", e)  # 在控制台打印更详细的错误信息
+            print("详细错误:", e)
     
     def show_game_details(self, event):
         """显示所选游戏的详细信息"""
@@ -423,7 +452,13 @@ class SteamDatabaseGUI:
                 details += "评价: 无评价\n"
             
             details += f"估计拥有者: {game.get('estimated_owners', '未知')}\n"
-            details += f"峰值同时在线: {game.get('peak_ccu', 0)}\n"
+            
+            # 处理峰值同时在线数据
+            peak_ccu = game.get("peak_ccu", 0)
+            if peak_ccu in [0, 1]:
+                details += "峰值同时在线: Data not calculated\n"
+            else:
+                details += f"峰值同时在线: {peak_ccu}\n"
             
             # 游戏类型和标签
             genres = game.get("genres", [])
@@ -453,6 +488,71 @@ class SteamDatabaseGUI:
         except Exception as e:
             messagebox.showerror("详情错误", f"显示游戏详情时出错: {e}")
             print("详情错误详细信息:", e)  # 在控制台打印更多信息
+
+    def populate_tags(self):
+        """填充标签复选框"""
+        # 先清除现有的复选框
+        for widget in self.tags_scrollable_frame.winfo_children():
+            widget.destroy()
+        
+        # 获取当前搜索文本
+        search_text = self.tag_search_var.get().lower() if hasattr(self, 'tag_search_var') else ""
+        
+        # 筛选标签
+        all_tags = self.all_tags if hasattr(self, 'all_tags') else self.get_all_tags()
+        filtered_tags = [tag for tag in all_tags if search_text == "" or search_text in tag.lower()]
+        
+        # 限制显示数量，防止UI过载
+        max_display = 10000  # 允许最多显示10000个标签
+        display_tags = filtered_tags[:max_display]
+        
+        # 创建复选框网格
+        cols = 3  # 每行3个复选框
+        for i, tag in enumerate(display_tags):
+            row, col = i // cols, i % cols
+            
+            if tag not in self.tag_vars:
+                self.tag_vars[tag] = tk.BooleanVar()
+                # 只在第一次创建变量时添加追踪
+                self.tag_vars[tag].trace_add("write", self.update_selected_tags_display_callback)
+            
+            chk = ttk.Checkbutton(
+                self.tags_scrollable_frame, 
+                text=tag,
+                variable=self.tag_vars[tag]
+            )
+            chk.grid(row=row, column=col, sticky="w", padx=5, pady=2)
+        
+        # 显示筛选信息
+        if search_text and len(filtered_tags) > max_display:
+            info_label = ttk.Label(
+                self.tags_scrollable_frame,
+                text=f"显示前{max_display}个结果，共找到{len(filtered_tags)}个标签"
+            )
+            info_label.grid(row=(len(display_tags)//cols)+1, column=0, columnspan=cols, pady=5)
+        
+        # 更新已选标签显示
+        self.update_selected_tags_display()
+
+    def update_selected_tags_display_callback(self, *args):
+        """回调函数，用于变量追踪"""
+        self.update_selected_tags_display()
+
+    def filter_tags(self, *args):
+        """根据搜索文本筛选标签"""
+        self.populate_tags()
+
+    def update_selected_tags_display(self):
+        """更新已选标签的显示"""
+        selected_tags = [tag for tag, var in self.tag_vars.items() if var.get()]
+        
+        # 清空当前显示
+        self.selected_tags_text.delete(1.0, tk.END)
+        
+        if selected_tags:
+            self.selected_tags_text.insert(tk.END, ", ".join(selected_tags))
+        else:
+            self.selected_tags_text.insert(tk.END, "未选择任何标签")
 
 if __name__ == "__main__":
     root = tk.Tk()
