@@ -10,7 +10,7 @@ from bson.objectid import ObjectId  # import this, for handling MongoDB's Object
 class SteamDatabaseGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("Steam游戏数据库查询工具")
+        self.root.title("Steam Game Database Query Tool")
         self.root.geometry("1200x800")
         self.root.configure(bg="#2a475e")  # dark blue background
         
